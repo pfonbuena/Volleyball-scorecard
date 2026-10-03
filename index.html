@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Tap-a-side volleyball scoreboard with UIL junior-high rules, timeouts and referee signals.">
+<meta name="theme-color" content="#0d1116">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<style>
+:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;font:14px system-ui,-apple-system,"Segoe UI",sans-serif;background:#faf9f7}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+<title>Sideline Scoreboard</title>
+<style>
+/* Layout: full-height split into two tap slabs, thin control rail pinned bottom.
+   Committed single-theme: a courtside scoreboard reads as dark in any room. */
+:root{
+  --ink:#f2f5f7;            /* primary text on dark */
+  --dim:#8d9aa6;            /* muted labels */
+  --ground:#0d1116;         /* page ground, blue-biased near-black */
+  --slab-a:#1b2b45;         /* home slab */
+  --slab-b:#3d2118;         /* away slab */
+  --line:#2a333d;           /* hairlines */
+  --serve:#ffd24a;          /* serve + accent */
+  --font-display:"Barlow Condensed","Oswald","Arial Narrow",system-ui,sans-serif;
+  --font-ui:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--font-ui);overflow:hidden}
+.app{height:100%;display:flex;flex-direction:column;gap:2px}
+
+.slab{flex:1;min-height:0;border:none;width:100%;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:.2rem;color:var(--ink);
+  cursor:pointer;position:relative;padding:1rem;transition:filter .12s ease;
+  -webkit-tap-highlight-color:transparent;font-family:inherit}
+.slab:active{filter:brightness(1.35)}
+.slab:focus-visible{outline:3px solid var(--serve);outline-offset:-5px}
+.slab.a{background:var(--slab-a)}
+.slab.b{background:var(--slab-b)}
+
+.name{font-family:var(--font-ui);font-size:clamp(.95rem,4vw,1.25rem);font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;background:none;border:none;color:inherit;
+  opacity:.92;text-align:center;width:min(100%,16ch);padding:.3rem .2rem;
+  border-bottom:1px dashed transparent}
+.name:focus{outline:none;border-bottom-color:var(--serve)}
+.score{font-family:var(--font-display);font-size:clamp(5rem,26vh,11rem);line-height:.82;
+  font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:inherit}
+.meta{display:flex;align-items:center;gap:.6rem;font-size:.8rem;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:inherit;opacity:.92;min-height:1.2rem}
+.sets{font-variant-numeric:tabular-nums;font-weight:600;color:inherit}
+.ball{width:.6rem;height:.6rem;border-radius:50%;background:var(--serve);
+  box-shadow:0 0 0 4px rgba(255,210,74,.22);flex:none}
+.ball[hidden]{display:none!important}
+
+.rail{display:flex;align-items:center;gap:.4rem;padding:.55rem .75rem;
+  padding-bottom:calc(.55rem + env(safe-area-inset-bottom,0px));
+  background:var(--ground);border-top:1px solid var(--line);flex-wrap:wrap;justify-content:center}
+.status{flex:1 1 100%;min-width:0;text-align:center;font-size:.75rem;font-weight:600;
+  letter-spacing:.12em;text-transform:uppercase;color:#b9c5d0;order:-1;padding-bottom:.3rem}
+.status b{color:var(--serve);font-weight:600;letter-spacing:.12em}
+button.ctl{font-family:var(--font-ui);font-size:.75rem;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;
+  background:transparent;color:#b9c5d0;border:1px solid #3a4651;border-radius:999px;
+  padding:.5rem .85rem;cursor:pointer;min-height:40px}
+button.ctl:hover{color:var(--ink);border-color:#8d9aa6}
+button.ctl:focus-visible{outline:2px solid var(--serve);outline-offset:2px}
+button.ctl:disabled{opacity:.35;cursor:default}
+button.ctl[data-armed="1"]{color:var(--serve);border-color:var(--serve)}
+.to{position:absolute;top:.6rem;right:.7rem;display:flex;align-items:center;gap:.35rem;
+  font-family:var(--font-ui);font-size:.68rem;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;color:inherit;background:rgba(127,127,127,.18);
+  border:1px solid currentColor;border-radius:999px;padding:.35rem .6rem;cursor:pointer;
+  opacity:.75;min-height:32px;-webkit-tap-highlight-color:transparent}
+.to:hover{opacity:1}
+.to:focus-visible{outline:2px solid var(--serve);outline-offset:2px}
+.to:disabled{opacity:.3;cursor:default}
+.pips{display:flex;gap:.22rem}
+.pip{width:.42rem;height:.42rem;border-radius:50%;border:1px solid currentColor;background:transparent}
+.pip.used{background:currentColor}
+.sheet{position:fixed;inset:0;z-index:20;background:rgba(6,9,12,.72);
+  display:flex;align-items:flex-end;justify-content:center}
+.sheet[hidden]{display:none!important}
+.sheet-inner{width:min(100%,560px);max-height:86vh;overflow-y:auto;background:#141a21;
+  border:1px solid #2a333d;border-bottom:none;border-radius:14px 14px 0 0;
+  padding:1.1rem 1.2rem calc(1.4rem + env(safe-area-inset-bottom,0px))}
+.sheet h2{font-family:var(--font-display);font-size:1.6rem;font-weight:600;letter-spacing:.01em;
+  margin:0 0 .15rem;color:var(--ink);text-wrap:balance}
+.sheet .sub{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:#b9c5d0;margin:0 0 1rem}
+.rule{display:grid;grid-template-columns:7.5rem 1fr;gap:.5rem 1rem;padding:.6rem 0;
+  border-top:1px solid #222b34;font-size:.9rem;line-height:1.45;color:#dfe6ec}
+.rule dt{font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:#93a1ad;
+  font-weight:600;padding-top:.15rem}
+.rule dd{margin:0}
+.rule b{color:var(--serve);font-weight:600}
+.sechead{font-family:var(--font-display);font-size:1.25rem;font-weight:600;letter-spacing:.01em;
+  color:var(--ink);margin:1.4rem 0 .1rem}
+.sechead + .sub{margin-bottom:.7rem}
+.sigs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.7rem;margin-bottom:.4rem}
+.sig{border:1px solid #222b34;border-radius:10px;padding:.6rem .65rem;display:flex;gap:.6rem;
+  align-items:flex-start;background:#171e26}
+.sig svg{flex:none;width:52px;height:52px}
+.sig .txt{min-width:0}
+.sig h3{margin:0 0 .15rem;font-size:.78rem;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink)}
+.sig p{margin:0;font-size:.78rem;line-height:1.4;color:#aab6c2}
+.srcnote{font-size:.72rem;line-height:1.5;color:#93a1ad;margin:1rem 0 .9rem}
+.srcnote a{color:#b9c5d0}
+.sheet-actions{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-top:.2rem}
+@media (max-width:420px){.rule{grid-template-columns:1fr;gap:.2rem}}
+.panel{flex:1 1 100%;display:flex;gap:.6rem;align-items:center;justify-content:center;
+  flex-wrap:wrap;padding:.5rem 0 .2rem;border-top:1px solid var(--line);margin-top:.2rem}
+.panel[hidden]{display:none!important}
+.pick{display:flex;align-items:center;gap:.45rem;font-size:.75rem;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;color:#b9c5d0}
+.pick input[type=color]{width:38px;height:28px;padding:0;border:1px solid var(--line);
+  border-radius:6px;background:transparent;cursor:pointer}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=Inter:wght@400;600&display=swap">
+</head>
+<body>
+<div class="app">
+  <div class="slab a" id="slabA" role="button" tabindex="0" aria-label="Add point to home team">
+    <input class="name" id="nameA" value="HOME" aria-label="Home team name" maxlength="14">
+    <span class="score" id="scoreA">0</span>
+    <span class="meta"><span class="ball" id="ballA" hidden></span><span>Sets <span class="sets" id="setsA">0</span></span></span>
+    <button class="to" id="toA" aria-label="Home timeout">T/O <span class="pips" id="pipsA"></span></button>
+  </div>
+
+  <div class="slab b" id="slabB" role="button" tabindex="0" aria-label="Add point to away team">
+    <input class="name" id="nameB" value="AWAY" aria-label="Away team name" maxlength="14">
+    <span class="score" id="scoreB">0</span>
+    <span class="meta"><span class="ball" id="ballB" hidden></span><span>Sets <span class="sets" id="setsB">0</span></span></span>
+    <button class="to" id="toB" aria-label="Away timeout">T/O <span class="pips" id="pipsB"></span></button>
+  </div>
+
+  <div class="rail">
+    <div class="status" id="status">Set 1 &middot; first to 25, win by 2</div>
+    <button class="ctl" id="undo" disabled>Undo</button>
+    <button class="ctl" id="serve">Serve</button>
+    <button class="ctl" id="swap">Swap sides</button>
+    <button class="ctl" id="nextSet">End set</button>
+    <button class="ctl" id="rules">Rules</button>
+    <button class="ctl" id="format">Best of 3</button>
+    <button class="ctl" id="colors" aria-expanded="false">Colors</button>
+    <button class="ctl" id="reset">Reset match</button>
+    <div class="panel" id="panel" hidden>
+      <label class="pick"><span id="labelA">Home</span>
+        <input type="color" id="colA" value="#1b2b45" aria-label="Home team color"></label>
+      <label class="pick"><span id="labelB">Away</span>
+        <input type="color" id="colB" value="#3d2118" aria-label="Away team color"></label>
+      <button class="ctl" id="colReset">Default colors</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-inner" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <h2 id="sheetTitle">Junior High Volleyball</h2>
+    <p class="sub">UIL Texas &middot; 7th &amp; 8th grade girls</p>
+    <dl class="rule">
+      <dt>Match</dt>
+      <dd>Best of 3, rally scoring. By mutual consent the third set may be played even when the same team has won the first two.</dd>
+    </dl>
+    <dl class="rule">
+      <dt>Sets 1 &amp; 2</dt>
+      <dd>To <b>25</b>, win by 2, <b>capped at 30</b> &mdash; at 29&ndash;29 the next point wins.</dd>
+    </dl>
+    <dl class="rule">
+      <dt>Third set</dt>
+      <dd>To <b>15</b>, win by 2, <b>capped at 20</b>. Districts may instead play the third set to 25 (cap 30).</dd>
+    </dl>
+    <dl class="rule">
+      <dt>Timeouts</dt>
+      <dd>Two per team per set.</dd>
+    </dl>
+    <dl class="rule">
+      <dt>Let serve</dt>
+      <dd>A serve that touches the net and lands in is live and playable.</dd>
+    </dl>
+    <dl class="rule">
+      <dt>Tournaments</dt>
+      <dd>Pool play is usually mini games to 15, capped at 20. Bracket matches follow the regular format.</dd>
+    </dl>
+    <dl class="rule">
+      <dt>Sides</dt>
+      <dd>Teams switch benches between sets. Use Swap sides to keep the board matching the court.</dd>
+    </dl>
+    <h3 class="sechead">Referee signals</h3>
+    <p class="sub">The call, then what the whistle means</p>
+    <div class="sigs" id="sigs"></div>
+
+    <p class="srcnote">Summarized from the UIL volleyball rally scoring regulations. District and tournament directors can set their own variations, so confirm with the host before first serve.</p>
+    <div class="sheet-actions">
+      <button class="ctl" id="decTo">Third set: 15</button>
+      <button class="ctl" id="sheetClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var DEF_A='#1b2b45', DEF_B='#3d2118';
+  var S = {a:0,b:0,setsA:0,setsB:0,set:1,serve:'a',nameA:'HOME',nameB:'AWAY',colA:DEF_A,colB:DEF_B,toA:0,toB:0,bestOf:3,decTo:15};
+  var history = [];
+  var el = function(id){return document.getElementById(id);};
+  var resetArmed = false;
+
+  // Best of 3: sets 1-2 to 25, deciding set 3 to 15. Best of 5: deciding set 5 to 15.
+  function decider(){ return S.bestOf; }
+  function setsToWin(){ return (S.bestOf + 1) / 2; }
+  function target(){ return S.set >= decider() ? S.decTo : 25; }
+  // UIL caps the set: 25 caps at 30, 15 caps at 20.
+  function cap(){ return target() === 15 ? 20 : 30; }
+
+  function setOver(){
+    var t = target(), c = cap();
+    if(Math.max(S.a, S.b) >= c) return true;
+    return (S.a >= t || S.b >= t) && Math.abs(S.a - S.b) >= 2;
+  }
+
+  function save(){
+    try{ localStorage.setItem('vb-score', JSON.stringify(S)); }catch(e){}
+  }
+  function load(){
+    try{
+      var raw = localStorage.getItem('vb-score');
+      if(raw){ var o = JSON.parse(raw); for(var k in S){ if(o[k] !== undefined) S[k] = o[k]; } }
+    }catch(e){}
+  }
+
+  function statusLine(){
+    var t = target();
+    var lead = S.a > S.b ? 'nameA' : 'nameB';
+    var hi = Math.max(S.a, S.b), lo = Math.min(S.a, S.b);
+    if(setOver()){
+      var w = S.a > S.b ? S.nameA : S.nameB;
+      var after = (S.a > S.b ? S.setsA : S.setsB) + 1;
+      if(after >= setsToWin()) return '<b>' + w + ' wins the match</b> &middot; ' + after + ' sets';
+      return w + ' takes set ' + S.set + ', ' + S.a + '&ndash;' + S.b + ' &middot; tap End set';
+    }
+    if(hi >= t - 1 && hi - lo >= 1){
+      var who = S[lead];
+      var need = setsToWin() - 1;
+      var kind = (S.setsA === need || S.setsB === need || S.set >= decider()) ? 'match point' : 'set point';
+      return '<b>' + kind + '</b> &middot; ' + who;
+    }
+    var tail = S.set >= decider() ? ' &middot; deciding set' : '';
+    if(Math.max(S.a, S.b) >= cap() - 1){
+      return '<b>cap point</b> &middot; next point wins at ' + cap();
+    }
+    return 'Set ' + S.set + ' of ' + S.bestOf + ' &middot; to ' + t + ', cap ' + cap() + tail;
+  }
+
+  function lum(hex){
+    var h = String(hex).replace('#','');
+    if(h.length === 3){ h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2]; }
+    var r = parseInt(h.substr(0,2),16)/255, g = parseInt(h.substr(2,2),16)/255, b = parseInt(h.substr(4,2),16)/255;
+    function lin(c){ return c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4); }
+    return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b);
+  }
+  function ratio(l1, l2){
+    var hi = Math.max(l1,l2), lo = Math.min(l1,l2);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+  // Pick whichever text color has the higher contrast ratio against the slab.
+  function textOn(hex){
+    var L = lum(hex);
+    var white = ratio(L, lum('#ffffff'));
+    var black = ratio(L, lum('#0b0f13'));
+    return white >= black ? '#ffffff' : '#0b0f13';
+  }
+
+  function applyColors(){
+    var sa = el('slabA'), sb = el('slabB');
+    sa.style.background = S.colA; sa.style.color = textOn(S.colA);
+    sb.style.background = S.colB; sb.style.color = textOn(S.colB);
+    el('colA').value = S.colA;
+    el('colB').value = S.colB;
+    el('labelA').textContent = S.nameA;
+    el('labelB').textContent = S.nameB;
+  }
+
+  // Two timeouts per team per set, cleared when the set ends.
+  function renderTimeouts(side, used){
+    var pips = el('pips' + side);
+    pips.innerHTML = '';
+    for(var i = 0; i < 2; i++){
+      var d = document.createElement('span');
+      d.className = 'pip' + (i < used ? ' used' : '');
+      pips.appendChild(d);
+    }
+    el('to' + side).disabled = used >= 2;
+  }
+
+  function render(){
+    el('scoreA').textContent = S.a;
+    el('scoreB').textContent = S.b;
+    el('setsA').textContent = S.setsA;
+    el('setsB').textContent = S.setsB;
+    el('nameA').value = S.nameA;
+    el('nameB').value = S.nameB;
+    el('ballA').hidden = S.serve !== 'a';
+    el('ballB').hidden = S.serve !== 'b';
+    el('status').innerHTML = statusLine();
+    renderTimeouts('A', S.toA);
+    renderTimeouts('B', S.toB);
+    el('undo').disabled = history.length === 0;
+    el('nextSet').textContent = setOver() ? 'End set' : 'Skip set';
+    el('format').textContent = 'Best of ' + S.bestOf;
+    el('decTo').textContent = 'Third set: ' + S.decTo;
+    applyColors();
+    save();
+  }
+
+  function snapshot(){
+    history.push(JSON.stringify(S));
+    if(history.length > 200) history.shift();
+  }
+
+  function point(team){
+    snapshot();
+    S[team] += 1;
+    S.serve = team;
+    render();
+  }
+
+  function endSet(){
+    snapshot();
+    if(S.a > S.b) S.setsA += 1; else if(S.b > S.a) S.setsB += 1;
+    S.set += 1; S.a = 0; S.b = 0; S.toA = 0; S.toB = 0;
+    render();
+  }
+
+  function slabTap(e, team, nameId){
+    if(e.target.id === nameId) return;
+    if(e.target.closest('.to')) return;
+    point(team);
+  }
+  el('slabA').addEventListener('click', function(e){ slabTap(e, 'a', 'nameA'); });
+  el('slabB').addEventListener('click', function(e){ slabTap(e, 'b', 'nameB'); });
+  [['slabA','a'],['slabB','b']].forEach(function(pair){
+    el(pair[0]).addEventListener('keydown', function(e){
+      if(e.target !== this) return;
+      if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); point(pair[1]); }
+    });
+  });
+
+  function timeout(side){
+    var key = 'to' + side;
+    if(S[key] >= 2) return;
+    snapshot();
+    S[key] += 1;
+    render();
+  }
+  el('toA').addEventListener('click', function(e){ e.stopPropagation(); timeout('A'); });
+  el('toB').addEventListener('click', function(e){ e.stopPropagation(); timeout('B'); });
+
+  el('nameA').addEventListener('input', function(){ S.nameA = this.value || 'HOME'; save(); });
+  el('nameB').addEventListener('input', function(){ S.nameB = this.value || 'AWAY'; save(); });
+
+  el('undo').addEventListener('click', function(){
+    var prev = history.pop();
+    if(!prev) return;
+    S = JSON.parse(prev);
+    render();
+  });
+
+  el('serve').addEventListener('click', function(){
+    snapshot();
+    S.serve = S.serve === 'a' ? 'b' : 'a';
+    render();
+  });
+
+  el('swap').addEventListener('click', function(){
+    snapshot();
+    var t;
+    t = S.a; S.a = S.b; S.b = t;
+    t = S.setsA; S.setsA = S.setsB; S.setsB = t;
+    t = S.nameA; S.nameA = S.nameB; S.nameB = t;
+    t = S.colA; S.colA = S.colB; S.colB = t;
+    t = S.toA; S.toA = S.toB; S.toB = t;
+    S.serve = S.serve === 'a' ? 'b' : 'a';
+    render();
+  });
+
+  el('nextSet').addEventListener('click', endSet);
+
+  el('reset').addEventListener('click', function(){
+    if(!resetArmed){
+      resetArmed = true;
+      this.textContent = 'Tap again';
+      this.setAttribute('data-armed','1');
+      var btn = this;
+      setTimeout(function(){
+        resetArmed = false; btn.textContent = 'Reset match'; btn.removeAttribute('data-armed');
+      }, 2500);
+      return;
+    }
+    resetArmed = false;
+    this.textContent = 'Reset match';
+    this.removeAttribute('data-armed');
+    snapshot();
+    S.a = 0; S.b = 0; S.setsA = 0; S.setsB = 0; S.set = 1; S.serve = 'a';
+    S.toA = 0; S.toB = 0;
+    render();
+  });
+
+  // Each signal is one stick figure: arms are drawn to the given endpoints,
+  // and `extra` adds whatever the call needs (a net line, an arrow, a number).
+  var SIGNALS = [
+    {n:'Point / side out', d:'Arm extended toward the team that won the rally and will serve next.',
+     arms:[[12,26],[52,22]]},
+    {n:'Ball in', d:'Arm and fingers point down at the court. The ball landed in bounds.',
+     arms:[[22,40],[46,44]]},
+    {n:'Ball out', d:'Both forearms raised, hands open, palms toward the body.',
+     arms:[[21,9],[39,9]], extra:'<path d="M18 7h6M36 7h6" stroke-width="3"/>'},
+    {n:'Four hits', d:'Four fingers held up. The team contacted the ball four times.',
+     arms:[[18,28],[42,12]], label:'4'},
+    {n:'Double contact', d:'Two fingers held up. One player contacted the ball twice in a row.',
+     arms:[[18,28],[42,12]], label:'2'},
+    {n:'Lift / carry', d:'Forearm raised, palm open and facing up. The ball came to rest on the hands.',
+     arms:[[18,28],[48,26]], extra:'<path d="M44 26q4-5 8 0" fill="none"/>'},
+    {n:'Touched ball', d:'Fingertips of one hand brushed over the open palm of the other. The ball was touched on the way out.',
+     arms:[[26,24],[40,22]], extra:'<path d="M38 18v9" stroke-width="3"/>'},
+    {n:'Net touch', d:'Hand placed on the top of the net on the side at fault.',
+     arms:[[20,30],[46,20]], net:true},
+    {n:'Reach over net', d:'Hand held flat above the net, palm down. Contact was made on the other side.',
+     arms:[[20,30],[46,15]], net:true, extra:'<path d="M40 15h12" stroke-width="3"/>'},
+    {n:'Back-row attack', d:'Forearm sweeps downward with the palm down. A back-row player attacked above the net.',
+     arms:[[18,28],[46,16]], extra:'<path d="M46 20v12M42 28l4 5 4-5" fill="none"/>'},
+    {n:'Centerline fault', d:'Referee points at the center line. A foot crossed completely over.',
+     arms:[[20,30],[48,42]], extra:'<path d="M34 52h24" stroke-width="3"/>'},
+    {n:'Foot fault', d:'Referee points at the end line. The server stepped on or over it before contact.',
+     arms:[[20,30],[48,44]], extra:'<path d="M38 54h20" stroke-width="3"/>'},
+    {n:'Delay of serve', d:'Eight fingers shown. The server took more than eight seconds after the whistle.',
+     arms:[[18,12],[42,12]], label:'8'},
+    {n:'Rotation fault', d:'Forefinger circles in front of the body. Players were out of rotation at serve.',
+     arms:[[22,28],[44,26]], extra:'<circle cx="46" cy="26" r="7" fill="none"/><path d="M46 19l4 3-4 3" fill="none"/>'},
+    {n:'Substitution', d:'Forearms circle around each other. Play stops for a change of players.',
+     arms:[[22,24],[38,24]], extra:'<path d="M24 20a8 8 0 1 0 12 0" fill="none"/><path d="M36 16v5h-5" fill="none"/>'},
+    {n:'Timeout', d:'Hands form a T. One of the team\u2019s two timeouts for the set.',
+     arms:[[24,18],[40,24]], extra:'<path d="M20 16h18M31 16v12" stroke-width="3"/>'},
+    {n:'End of set', d:'Forearms crossed in front of the chest. The set or match is over.',
+     arms:[[42,14],[18,14]]}
+  ];
+
+  function signalSvg(sig){
+    var g = '<svg viewBox="0 0 60 60" aria-hidden="true" fill="none" stroke="currentColor" ' +
+            'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">';
+    g += '<circle cx="30" cy="12" r="5.5" fill="none"/>';
+    g += '<path d="M30 18v22M30 40l-7 13M30 40l7 13"/>';
+    g += '<path d="M30 24L' + sig.arms[0][0] + ' ' + sig.arms[0][1] + '"/>';
+    g += '<path d="M30 24L' + sig.arms[1][0] + ' ' + sig.arms[1][1] + '"/>';
+    if(sig.net) g += '<path d="M4 20h52" stroke-dasharray="3 3" stroke-width="1.6"/>';
+    if(sig.extra) g += sig.extra;
+    if(sig.label) g += '<text x="47" y="12" font-size="13" font-weight="700" fill="currentColor" ' +
+                       'stroke="none" text-anchor="middle">' + sig.label + '</text>';
+    return g + '</svg>';
+  }
+
+  function buildSignals(){
+    var wrap = el('sigs');
+    if(!wrap || wrap.childNodes.length) return;
+    SIGNALS.forEach(function(sig){
+      var card = document.createElement('div');
+      card.className = 'sig';
+      card.innerHTML = signalSvg(sig) +
+        '<div class="txt"><h3></h3><p></p></div>';
+      card.querySelector('h3').textContent = sig.n;
+      card.querySelector('p').textContent = sig.d;
+      wrap.appendChild(card);
+    });
+  }
+
+  function closeSheet(){ el('sheet').hidden = true; }
+  el('rules').addEventListener('click', function(){ buildSignals(); el('sheet').hidden = false; });
+  el('sheetClose').addEventListener('click', closeSheet);
+  el('sheet').addEventListener('click', function(e){ if(e.target === this) closeSheet(); });
+  el('decTo').addEventListener('click', function(){
+    snapshot();
+    S.decTo = S.decTo === 15 ? 25 : 15;
+    render();
+  });
+
+  el('format').addEventListener('click', function(){
+    snapshot();
+    S.bestOf = S.bestOf === 3 ? 5 : 3;
+    render();
+  });
+
+  el('colors').addEventListener('click', function(){
+    var p = el('panel');
+    p.hidden = !p.hidden;
+    this.setAttribute('aria-expanded', String(!p.hidden));
+    this.setAttribute('data-armed', p.hidden ? '' : '1');
+  });
+  el('colA').addEventListener('input', function(){ S.colA = this.value; applyColors(); save(); });
+  el('colB').addEventListener('input', function(){ S.colB = this.value; applyColors(); save(); });
+  el('colReset').addEventListener('click', function(){
+    S.colA = DEF_A; S.colB = DEF_B; applyColors(); save();
+  });
+
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape'){ closeSheet(); return; }
+    if(!el('sheet').hidden) return;
+    if(e.target.tagName === 'INPUT') return;
+    if(e.key === 'ArrowLeft'){ point('a'); }
+    else if(e.key === 'ArrowRight'){ point('b'); }
+    else if(e.key === 'z' || e.key === 'Z'){ el('undo').click(); }
+  });
+
+  load();
+  render();
+})();
+</script>
+</body>
+</html>
